@@ -25,6 +25,8 @@
 
 int led = 11;
 
+uint16_t EOS = 0xFF00;
+
 #define AVERAGE_WIN   256  // Number of samples to include in running average
 #define THRESHOLD      15  // Sensor value above average value indicating a detection
 #define THRESHOLD_WIN   5  // How many consecutive samples above the THRESHOLD constitutes a valid detection
@@ -124,6 +126,7 @@ void sample_channel(int chan)
     Serial1.write((uint8_t*) &g_channel[chan].ID, sizeof(g_channel[chan].ID));
     Serial1.write((uint8_t*) &stamp, sizeof(stamp));
     Serial1.write((uint8_t*) &pressure, sizeof(pressure));
+    Serial1.write((uint8_t*) &EOS, sizeof(EOS));
     Serial1.write('\n');
 #ifdef DEBUG
     Serial.print(chan);

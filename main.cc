@@ -26,7 +26,7 @@
 #include <unistd.h>
 
 #define DEBUG
-//#define DEBUGRX
+#define DEBUGRX
 
 
 static struct channel_s {
@@ -48,12 +48,13 @@ analyzeChannel(unsigned int chan,
 
 // Keep a rolling window of sampled characters
 union rxData_u {
-  char     c[10];
+  char     c[12];
   
   struct channelSample_s {
     uint32_t tag;
     uint32_t stamp;
     uint16_t pressure;
+    uint16_t EOS;
   } d;
   
 } rxData;
@@ -70,11 +71,11 @@ analyzeChar(char c)
   switch (rxData.d.tag) {
 
   case 0xFFAAAA00:
-    analyzeChannel(0, rxData.d.stamp, rxData.d.pressure);
+    if (rxData.d.EOS == 0xFF00) analyzeChannel(0, rxData.d.stamp, rxData.d.pressure);
     break;
 
   case 0xFF555500:
-    analyzeChannel(1, rxData.d.stamp, rxData.d.pressure);
+    if (rxData.d.EOS == 0xFF00) analyzeChannel(1, rxData.d.stamp, rxData.d.pressure);
     break;
     
   case 0xFFA5A500:
