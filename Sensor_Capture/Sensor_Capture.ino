@@ -36,10 +36,11 @@ struct channel_s {
   uint8_t  aboveThreshold;            // (Saturated) count of consecutive samples above threshold
   uint8_t  belowThreshold;            //      "        "            "        "    below      "
   bool     isAbove;
+  uint16_t peakPressure;
   uint16_t sampleCount;
 } g_channel[2] = {
-  {0xAAAAAAAA, 9, 512, 0, 0, 0, 0},
-  {0x55555555, 1, 512, 0, 0, 0, 0}
+  {0xFFAAAA00, 9, 512, 0, 0, 0, 0, 0},
+  {0xFF555500, 1, 512, 0, 0, 0, 0, 0}
 };
 
 
@@ -74,9 +75,11 @@ void sample_channel(int chan)
   if (adcVal >= g_channel[chan].average + THRESHOLD) {
     if (g_channel[chan].aboveThreshold < 255) g_channel[chan].aboveThreshold++;
     g_channel[chan].belowThreshold = 0;
+    if (g_channel[chan].peakPressure < adcVal) g_channel[chan].peakPressure = adcVal;
   } else {
     if (g_channel[chan].belowThreshold < 255) g_channel[chan].belowThreshold++;
     g_channel[chan].aboveThreshold = 0;
+    g_channel[chan].peakPressure = 0;
   }
 #ifdef DEBUGALL
   Serial.print(' ');
@@ -101,6 +104,9 @@ void sample_channel(int chan)
   Serial.print(' ');
 #endif
 
+  // Save the differential value (aka pressure)
+  uint16_t pressure = g_channel[chan].peakPressure - g_channel[chan].average;
+  
   // Update the background value (so we can track change in sensor due to temperature variations)
   g_channel[chan].average = ((g_channel[chan].average * (double) (AVERAGE_WIN-1)) + adcVal) / (double) AVERAGE_WIN;
   // If the average goes too low (i.e. grounded ADC input), any noise will easily generate triggers
@@ -112,23 +118,26 @@ void sample_channel(int chan)
 #ifdef DEBUGALL
     Serial.print("*** | ");
 #endif
-    // Send the timestamp to C.H.I.P
+    // Send the timestamp and pressure value to C.H.I.P
     uint32_t stamp = millis();
     
     Serial1.write((uint8_t*) &g_channel[chan].ID, sizeof(g_channel[chan].ID));
     Serial1.write((uint8_t*) &stamp, sizeof(stamp));
+    Serial1.write((uint8_t*) &pressure, sizeof(pressure));
     Serial1.write('\n');
 #ifdef DEBUG
     Serial.print(chan);
     Serial.print(' ');
-    Serial.println(stamp);
+    Serial.print(stamp);
+    Serial.print(' ');
+    Serial.println(pressure);
 #endif
 
     g_channel[chan].sampleCount = 0;
   } else {
     // Send a heartbeat to C.H.I.P.
     if (g_channel[chan].sampleCount++ == 0xFFFF) {
-      uint64_t heartbeat = 0xA5A5A5A5A5A5A5A5;
+      uint32_t heartbeat = 0xFFA5A500;
       Serial1.write((uint8_t*) &heartbeat, sizeof(heartbeat));
       Serial1.write('\n');
 #ifdef DEBUGALL
