@@ -21,10 +21,12 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <termios.h>
 #include <unistd.h>
 
 #define DEBUG
+//#define DEBUGRX
 
 
 static struct channel_s {
@@ -34,24 +36,24 @@ static struct channel_s {
 
 void
 analyzeChannel(unsigned int chan,
-	       uint32_t     stamp)
+	       uint32_t     stamp,
+	       uint16_t     pressure)
 {
 #ifdef DEBUG
-  printf("%d %d", chan, stamp);
+  fprintf(stderr,  "%lu %d %u %d\n", time(NULL), chan, stamp, pressure);
 #endif
   channelData[chan].lastStamp = stamp;
-  
 }
 
 
 // Keep a rolling window of sampled characters
 union rxData_u {
-  char     c[8];
-  uint64_t bin;
+  char     c[10];
   
   struct channelSample_s {
     uint32_t tag;
     uint32_t stamp;
+    uint16_t pressure;
   } d;
   
 } rxData;
@@ -60,34 +62,29 @@ union rxData_u {
 void
 analyzeChar(char c)
 {
-  if (c == '\n') {
-    switch (rxData.d.tag) {
+  for (unsigned int i = 0; i < sizeof(rxData.c)-1; i++) {
+    rxData.c[i] = rxData.c[i+1];
+  }
+  rxData.c[sizeof(rxData.c)-1] = c;
 
-    case 0xAAAAAAAA:
-      analyzeChannel(0, rxData.d.stamp);
-      break;
+  switch (rxData.d.tag) {
 
-    case 0x55555555:
-      analyzeChannel(1, rxData.d.stamp);
-      break;
+  case 0xFFAAAA00:
+    analyzeChannel(0, rxData.d.stamp, rxData.d.pressure);
+    break;
 
-    case 0xA5A5A5A5:
-      // Heartbeat.
-      break;
-    }
+  case 0xFF555500:
+    analyzeChannel(1, rxData.d.stamp, rxData.d.pressure);
+    break;
+    
+  case 0xFFA5A500:
+    // Heartbeat.
+    break;
   }
   
 #ifdef DEBUGRX
-  if (c != '\n') printf("%02x ", c);
+  if (c != '\n') fprintf(stderr, "%02x ", c);
 #endif
-  
-#ifdef DEBUGRX
-  if (c == '\n') putchar(c);
-  fflush(stdout);
-#endif
-  
-  rxData.bin = (rxData.bin >> 8);
-  rxData.c[7] = c;
 }
 
 
