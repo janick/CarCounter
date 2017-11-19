@@ -26,7 +26,9 @@
 #include <unistd.h>
 
 #define DEBUG
-#define DEBUGRX
+//#define DEBUGRX
+
+const uint16_t EOS = 0xFF00;
 
 
 static struct channel_s {
@@ -71,11 +73,11 @@ analyzeChar(char c)
   switch (rxData.d.tag) {
 
   case 0xFFAAAA00:
-    if (rxData.d.EOS == 0xFF00) analyzeChannel(0, rxData.d.stamp, rxData.d.pressure);
+    if (rxData.d.EOS == EOS) analyzeChannel(0, rxData.d.stamp, rxData.d.pressure);
     break;
 
   case 0xFF555500:
-    if (rxData.d.EOS == 0xFF00) analyzeChannel(1, rxData.d.stamp, rxData.d.pressure);
+    if (rxData.d.EOS == EOS) analyzeChannel(1, rxData.d.stamp, rxData.d.pressure);
     break;
     
   case 0xFFA5A500:
