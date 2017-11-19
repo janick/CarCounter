@@ -28,8 +28,6 @@
 #define DEBUG
 //#define DEBUGRX
 
-const uint16_t EOS = 0xFF00;
-
 
 static struct channel_s {
   uint32_t lastStamp;
@@ -37,26 +35,31 @@ static struct channel_s {
 
 
 void
-analyzeChannel(unsigned int chan,
-	       uint32_t     stamp,
-	       uint16_t     pressure)
+analyzeSample(uint16_t chan0,
+	      uint16_t chan1,
+	      uint32_t stamp)
 {
 #ifdef DEBUG
-  fprintf(stderr,  "%lu %d %u %d\n", time(NULL), chan, stamp, pressure);
+  printf("%04x %04x %08x\n", chan0, chan1, stamp);
 #endif
-  channelData[chan].lastStamp = stamp;
+
+  //  channelData[chan].lastStamp = stamp;
 }
 
 
 // Keep a rolling window of sampled characters
 union rxData_u {
   char     c[12];
-  
+
+  // Must use 16-bit segments because the compiler insists on aligning 32-bit values
+  // Further, the Teensy and CHIP use a different endian
   struct channelSample_s {
-    uint32_t tag;
-    uint32_t stamp;
-    uint16_t pressure;
-    uint16_t EOS;
+    uint16_t SOFR;
+    uint16_t pressureData_0;
+    uint16_t pressureData_1;
+    uint16_t stampA;
+    uint16_t stampB;
+    uint16_t EOFR;
   } d;
   
 } rxData;
@@ -70,24 +73,16 @@ analyzeChar(char c)
   }
   rxData.c[sizeof(rxData.c)-1] = c;
 
-  switch (rxData.d.tag) {
-
-  case 0xFFAAAA00:
-    if (rxData.d.EOS == EOS) analyzeChannel(0, rxData.d.stamp, rxData.d.pressure);
-    break;
-
-  case 0xFF555500:
-    if (rxData.d.EOS == EOS) analyzeChannel(1, rxData.d.stamp, rxData.d.pressure);
-    break;
-    
-  case 0xFFA5A500:
-    // Heartbeat.
-    break;
-  }
-  
 #ifdef DEBUGRX
-  if (c != '\n') fprintf(stderr, "%02x ", c);
+  for (unsigned int i = 0; i < sizeof(rxData.c); i++) printf("%02x", rxData.c[i]);
+  printf("   ");
+  printf("%04x %04x %04x %04x%04x %04x\n", rxData.d.SOFR, rxData.d.pressureData_0, rxData.d.pressureData_1, rxData.d.stampA, rxData.d.stampB, rxData.d.EOFR);   
 #endif
+
+  if (rxData.d.SOFR == 0x0AAF && rxData.d.EOFR == 0xF550) {
+    analyzeSample(rxData.d.pressureData_0, rxData.d.pressureData_1,
+		  (((uint32_t) rxData.d.stampB) << 16) + rxData.d.stampA);
+  }
 }
 
 
