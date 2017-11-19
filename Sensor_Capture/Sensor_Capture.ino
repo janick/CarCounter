@@ -21,7 +21,8 @@
  * and send the timing of a detection of a window of significantly above-background values
  */
 
-#define DEBUG
+#undef DEBUG
+#undef DEBUGALL
 
 int led = 11;
 
