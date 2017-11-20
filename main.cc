@@ -58,8 +58,15 @@ analyzeChannel(unsigned int chan,
 	&& channelData[chan].idleCount > 100) {
 
 #ifdef DEBUG
-      printf("DTCT %d %04x %04x after %d Idle\n",
-	     chan, pressure, stamp, channelData[chan].idleCount);
+      unsigned int otherChan = (chan + 1) & 0x1;
+      if (channelData[otherChan].hasEvent) {
+	printf("DTCT %d %04x %04x with pending event on %d %d ms ago\n",
+	       chan, pressure, stamp,
+	       otherChan, stamp - channelData[otherChan].detectTime);
+      } else {
+	printf("DTCT %d %04x %04x with no event on %d\n",
+	       chan, pressure, stamp, otherChan);
+      }
 #endif
       
       channelData[chan].detectTime = stamp;
@@ -79,7 +86,7 @@ analyzeChannel(unsigned int chan,
     if (channelData[chan].idleCount < 0x10000000) channelData[chan].idleCount++;
 
     // Make sure a spurious event gets cleared
-    if (channelData[chan].idleCount > 100000) channelData[0].hasEvent = false;
+    if (channelData[chan].idleCount > 100000) channelData[chan].hasEvent = false;
   }
 
   // Update the running average
@@ -117,6 +124,9 @@ analyzeSample(uint16_t chan0,
   channelData[0].hasEvent = false;
   channelData[1].hasEvent = false;
 
+  // Reject if the speed is too high
+  if (mph > 60) return;
+
   // Measure wheel base
   // It does not matter which hose we use...
   stamp = channelData[0].detectTime;
@@ -124,14 +134,22 @@ analyzeSample(uint16_t chan0,
   ms = stamp - frontWheelStamp;
   if (ms < 0) ms = -ms;
   double feet = 0.00147 * ms * mph;
-  
-  printf("%.1f MPH %shill. Wheel base = %.1f ft\n", mph, (isUp) ? "Up" : "Down", feet);
-
-  // Reject if the speed is too high or the wheelbase is obviously too long
-  if (mph > 60 || feet > 50) {
-  }
 
   frontWheelStamp = stamp;
+
+  time_t now = time(NULL);
+  struct tm *lt = localtime(&now);
+
+  printf("%4d/%02d/%02d %02d:%02d:%02d %6.1f MPH %4shill.",
+	 lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday, lt->tm_hour, lt->tm_min, lt->tm_sec,
+	 mph, (isUp) ? "Up" : "Down");
+
+  // Reject if the wheelbase is obviously too long
+  if (feet < 50) {
+    printf(" Wheel base =%5.1f ft.", feet);
+  }
+
+  printf("\n");
 }
 
 
