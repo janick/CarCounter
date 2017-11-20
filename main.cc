@@ -30,20 +30,86 @@
 
 
 static struct channel_s {
-  uint32_t lastStamp;
-} channelData[2];
+  double   average;
+  bool     isIdle;
+  uint32_t idleCount;
+  uint32_t detectTime;
+  bool     hasEvent;
+} channelData[2] = {
+  {0x200, true, 0, 0, false},
+  {0x200, true, 0, 0, false}
+};
 
 
+void
+analyzeChannel(unsigned int chan,
+	       uint16_t     pressure,
+	       uint32_t     stamp)
+{
+  // Reject obviously bad samples
+  if (pressure < 0x0100 || 0x400 < pressure) return;
+  
+  if (pressure >= channelData[chan].average + 0x15) {
+    
+    if (channelData[chan].isIdle) {
+#ifdef DEBUG
+      printf("DTCT %d %04x %04x after %d Idle\n",
+	     chan, pressure, stamp, channelData[chan].idleCount);
+#endif
+      
+      channelData[chan].detectTime = stamp;
+      channelData[chan].hasEvent   = true;
+    }
+    
+    channelData[chan].isIdle     = false;
+    channelData[chan].idleCount  = 0;
+
+  } else {
+#ifdef DEBUG
+    if (!channelData[chan].isIdle) {
+      printf("IDLE %d %04x %04x\n", chan, pressure, stamp);
+    }
+#endif
+    channelData[chan].isIdle = true;
+    if (channelData[chan].idleCount < 0x10000000) channelData[chan].idleCount++;
+  }
+
+  // Update the running average
+  #define AVERAGE_WIN 100
+  channelData[chan].average = ((channelData[chan].average * (double) (AVERAGE_WIN-1)) + pressure) / (double) AVERAGE_WIN;
+}
+
+  
 void
 analyzeSample(uint16_t chan0,
 	      uint16_t chan1,
 	      uint32_t stamp)
 {
-#ifdef DEBUG
+#ifdef DEBUGRX
   printf("%04x %04x %08x\n", chan0, chan1, stamp);
 #endif
+  analyzeChannel(0, chan0, stamp);
+  analyzeChannel(1, chan1, stamp);
 
-  //  channelData[chan].lastStamp = stamp;
+  // Do we have an event recorded on both channels?
+  if (!channelData[0].hasEvent || !channelData[1].hasEvent) return;
+
+  // Which one occured first?
+  long int ms = channelData[0].detectTime - channelData[1].detectTime;
+
+  bool isUp = false;
+  if (ms < 0) {
+    isUp = true;
+    ms = -ms;
+  }
+
+  double mph = ((double) 681.8) / ms;
+
+  printf("%.1f MPH %shill...\n", mph, (isUp) ? "Up" : "Down");
+
+  // Marked these event has handled
+  channelData[0].hasEvent = false;
+  channelData[1].hasEvent = false;
 }
 
 
