@@ -29,6 +29,8 @@
 //#define DEBUGRX
 
 
+// Channel 0 is giving spurious low pressure values... odd...
+
 static struct channel_s {
   double   average;
   bool     isIdle;
@@ -49,7 +51,7 @@ analyzeChannel(unsigned int chan,
 	       uint32_t     stamp)
 {
   // Reject obviously bad samples
-  if (pressure < 0x0100 || 0x400 < pressure) return;
+  if (pressure < 0x0180 || 0x400 < pressure) return;
   
   if (pressure >= channelData[chan].average + 0x15) {
     
@@ -60,12 +62,12 @@ analyzeChannel(unsigned int chan,
 #ifdef DEBUG
       unsigned int otherChan = (chan + 1) & 0x1;
       if (channelData[otherChan].hasEvent) {
-	printf("DTCT %d %04x %04x with pending event on %d %d ms ago\n",
-	       chan, pressure, stamp,
+	printf("DTCT %d %5d > %5.0fx %04x with pending event on %d %d ms ago\n",
+	       chan, pressure, channelData[chan].average, stamp,
 	       otherChan, stamp - channelData[otherChan].detectTime);
       } else {
-	printf("DTCT %d %04x %04x with no event on %d\n",
-	       chan, pressure, stamp, otherChan);
+	printf("DTCT %d %5d > %5.0f %04x with no event on %d\n",
+	       chan, pressure, channelData[chan].average, stamp, otherChan);
       }
 #endif
       
@@ -90,7 +92,7 @@ analyzeChannel(unsigned int chan,
   }
 
   // Update the running average
-  #define AVERAGE_WIN 100
+  #define AVERAGE_WIN 250
   channelData[chan].average = ((channelData[chan].average * (double) (AVERAGE_WIN-1)) + pressure) / (double) AVERAGE_WIN;
 }
 
@@ -106,6 +108,9 @@ analyzeSample(uint16_t chan0,
   analyzeChannel(0, chan0, stamp);
   analyzeChannel(1, chan1, stamp);
 
+  //  printf("%d %f\n", chan0, channelData[0].average);
+  //  if (channelData[0].average < 425) exit(9);
+
   // Do we have an event recorded on both channels?
   if (!channelData[0].hasEvent || !channelData[1].hasEvent) return;
 
@@ -118,31 +123,40 @@ analyzeSample(uint16_t chan0,
     ms = -ms;
   }
 
+  // Reject detections that are way to slow
+  if (ms > 2000) {
+    // But save the latest event to recover
+    if (isUp) channelData[0].hasEvent = false;
+    else channelData[1].hasEvent = false;
+    return;
+  }
+
   double mph = ((double) 681.8) / ms;
 
   // Marked these event has handled
   channelData[0].hasEvent = false;
   channelData[1].hasEvent = false;
 
+  time_t now = time(NULL);
+  struct tm *lt = localtime(&now);
+  printf("%4d/%02d/%02d %02d:%02d:%02d ",
+	 lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday, lt->tm_hour, lt->tm_min, lt->tm_sec);
+  
   // Reject if the speed is too high
-  if (mph > 60) return;
+  if (mph > 60) {
+    printf("                     ");
+  } else {
+    printf("%6.1f MPH %4shill.", mph, (isUp) ? "Up" : "Down");
+  };
 
-  // Measure wheel base
-  // It does not matter which hose we use...
-  stamp = channelData[0].detectTime;
+  // Measure wheel base (It does not matter which hose we use)
+  stamp = channelData[1].detectTime;
   
   ms = stamp - frontWheelStamp;
   if (ms < 0) ms = -ms;
   double feet = 0.00147 * ms * mph;
 
   frontWheelStamp = stamp;
-
-  time_t now = time(NULL);
-  struct tm *lt = localtime(&now);
-
-  printf("%4d/%02d/%02d %02d:%02d:%02d %6.1f MPH %4shill.",
-	 lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday, lt->tm_hour, lt->tm_min, lt->tm_sec,
-	 mph, (isUp) ? "Up" : "Down");
 
   // Reject if the wheelbase is obviously too long
   if (feet < 50) {
