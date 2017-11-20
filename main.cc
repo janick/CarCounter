@@ -40,6 +40,8 @@ static struct channel_s {
   {0x200, true, 0, 0, false}
 };
 
+uint32_t frontWheelStamp = 0;
+
 
 void
 analyzeChannel(unsigned int chan,
@@ -51,7 +53,10 @@ analyzeChannel(unsigned int chan,
   
   if (pressure >= channelData[chan].average + 0x15) {
     
-    if (channelData[chan].isIdle) {
+    if (channelData[chan].isIdle
+	// Reject detections caused by bouncing in the hose
+	&& channelData[chan].idleCount > 100) {
+
 #ifdef DEBUG
       printf("DTCT %d %04x %04x after %d Idle\n",
 	     chan, pressure, stamp, channelData[chan].idleCount);
@@ -72,6 +77,9 @@ analyzeChannel(unsigned int chan,
 #endif
     channelData[chan].isIdle = true;
     if (channelData[chan].idleCount < 0x10000000) channelData[chan].idleCount++;
+
+    // Make sure a spurious event gets cleared
+    if (channelData[chan].idleCount > 100000) channelData[0].hasEvent = false;
   }
 
   // Update the running average
@@ -105,11 +113,25 @@ analyzeSample(uint16_t chan0,
 
   double mph = ((double) 681.8) / ms;
 
-  printf("%.1f MPH %shill...\n", mph, (isUp) ? "Up" : "Down");
-
   // Marked these event has handled
   channelData[0].hasEvent = false;
   channelData[1].hasEvent = false;
+
+  // Measure wheel base
+  // It does not matter which hose we use...
+  stamp = channelData[0].detectTime;
+  
+  ms = stamp - frontWheelStamp;
+  if (ms < 0) ms = -ms;
+  double feet = 0.00147 * ms * mph;
+  
+  printf("%.1f MPH %shill. Wheel base = %.1f ft\n", mph, (isUp) ? "Up" : "Down", feet);
+
+  // Reject if the speed is too high or the wheelbase is obviously too long
+  if (mph > 60 || feet > 50) {
+  }
+
+  frontWheelStamp = stamp;
 }
 
 
