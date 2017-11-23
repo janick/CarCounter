@@ -26,7 +26,7 @@
 #include <unistd.h>
 
 #define DEBUG
-//#define DEBUGRX
+#define DEBUGRX
 
 
 // Channel 0 is giving spurious low pressure values... odd...
@@ -103,7 +103,8 @@ analyzeSample(uint16_t chan0,
 	      uint32_t stamp)
 {
 #ifdef DEBUGRX
-  printf("%04x %04x %08x\n", chan0, chan1, stamp);
+  printf("%04x %04x %08x", chan0, chan1, stamp);
+  return;
 #endif
   analyzeChannel(0, chan0, stamp);
   analyzeChannel(1, chan1, stamp);
@@ -164,6 +165,7 @@ analyzeSample(uint16_t chan0,
   }
 
   printf("\n");
+  fflush(stdout);
 }
 
 
@@ -196,13 +198,18 @@ analyzeChar(char c)
 #ifdef DEBUGRX
   for (unsigned int i = 0; i < sizeof(rxData.c); i++) printf("%02x", rxData.c[i]);
   printf("   ");
-  printf("%04x %04x %04x %04x%04x %04x\n", rxData.d.SOFR, rxData.d.pressureData_0, rxData.d.pressureData_1, rxData.d.stampA, rxData.d.stampB, rxData.d.EOFR);   
+  printf("%04x %04x %04x %04x%04x %04x   ", rxData.d.SOFR, rxData.d.pressureData_0, rxData.d.pressureData_1, rxData.d.stampA, rxData.d.stampB, rxData.d.EOFR);   
 #endif
 
   if (rxData.d.SOFR == 0x0AAF && rxData.d.EOFR == 0xF550) {
     analyzeSample(rxData.d.pressureData_0, rxData.d.pressureData_1,
 		  (((uint32_t) rxData.d.stampB) << 16) + rxData.d.stampA);
   }
+
+#ifdef DEBUGRX
+  printf("\n");
+  fflush(stdout);
+#endif
 }
 
 
@@ -223,7 +230,7 @@ main(int argc, char* argv[])
     goto abort;
   }
 
-  cfsetispeed(&ttySettings, (speed_t)B115200);
+  cfsetispeed(&ttySettings, (speed_t)B57600);
   ttySettings.c_cflag &= ~PARENB;
   ttySettings.c_cflag &= ~CSTOPB;
   ttySettings.c_cflag &= ~CSIZE;
