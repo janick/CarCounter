@@ -19,10 +19,10 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/time.h>
 #include <time.h>
-#include <termios.h>
 #include <unistd.h>
 
 #define DEBUG
@@ -103,7 +103,7 @@ analyzeSample(uint16_t chan0,
 	      uint32_t stamp)
 {
 #ifdef DEBUGRX
-  printf("%04x %04x %08x", chan0, chan1, stamp);
+  printf("%04x %04x %08x\n", chan0, chan1, stamp);
   return;
 #endif
   analyzeChannel(0, chan0, stamp);
@@ -169,91 +169,192 @@ analyzeSample(uint16_t chan0,
 }
 
 
-// Keep a rolling window of sampled characters
-union rxData_u {
-  char     c[12];
-
-  // Must use 16-bit segments because the compiler insists on aligning 32-bit values
-  // Further, the Teensy and CHIP use a different endian
-  struct channelSample_s {
-    uint16_t SOFR;
-    uint16_t pressureData_0;
-    uint16_t pressureData_1;
-    uint16_t stampA;
-    uint16_t stampB;
-    uint16_t EOFR;
-  } d;
-  
-} rxData;
-
-
-void
-analyzeChar(char c)
+//
+// GPIO operations
+//
+int
+gpioOpen(int num, char rw)
 {
-  for (unsigned int i = 0; i < sizeof(rxData.c)-1; i++) {
-    rxData.c[i] = rxData.c[i+1];
-  }
-  rxData.c[sizeof(rxData.c)-1] = c;
+  int fd;
+  char buf[256];
 
-#ifdef DEBUGRX
-  for (unsigned int i = 0; i < sizeof(rxData.c); i++) printf("%02x", rxData.c[i]);
-  printf("   ");
-  printf("%04x %04x %04x %04x%04x %04x   ", rxData.d.SOFR, rxData.d.pressureData_0, rxData.d.pressureData_1, rxData.d.stampA, rxData.d.stampB, rxData.d.EOFR);   
-#endif
-
-  if (rxData.d.SOFR == 0x0AAF && rxData.d.EOFR == 0xF550) {
-    analyzeSample(rxData.d.pressureData_0, rxData.d.pressureData_1,
-		  (((uint32_t) rxData.d.stampB) << 16) + rxData.d.stampA);
+  fd = open("/sys/class/gpio/unexport", O_WRONLY);
+  if (fd < 0) {
+    fprintf(stderr, "Unable to unexport GPIO %d: ", num);
+    perror(NULL);
+    return -1;
   }
 
-#ifdef DEBUGRX
-  printf("\n");
-  fflush(stdout);
-#endif
+  sprintf(buf, "%d", num);
+  if (write(fd, buf, 3) < 3) {
+    fprintf(stderr, "Unable to unexport GPIO %d: ", num);
+    perror(NULL);
+    close(fd);
+    return -1;
+  }
+  close(fd);
+
+  fd = open("/sys/class/gpio/export", O_WRONLY);
+  if (fd < 0) {
+    fprintf(stderr, "Unable to export GPIO %d: ", num);
+    perror(NULL);
+    return -1;
+  }
+
+  if (write(fd, buf, 3) < 3) {
+    fprintf(stderr, "Unable to export GPIO %d: ", num);
+    perror(NULL);
+    close(fd);
+    return -1;
+  }
+  close(fd);
+
+  sprintf(buf, "/sys/class/gpio/gpio%d/direction", num);
+
+  fd = open(buf, O_WRONLY);
+  if (fd < 0) {
+    fprintf(stderr, "Unable to open GPIO %d: ", num);
+    perror(NULL);
+    return -1;
+  }
+  if (rw == 'w') {
+    if (write(fd, "out", 3) < 3) {
+      fprintf(stderr, "Unable to set GPIO %d to OUT: ", num);
+      perror(NULL);
+      close(fd);
+      return -1;
+    }
+  } else {
+    if (write(fd, "in", 2) < 2) {
+      fprintf(stderr, "Unable to set GPIO %d to IN: ", num);
+      perror(NULL);
+      close(fd);
+      return -1;
+    }
+  }
+  
+  sprintf(buf, "/sys/class/gpio/gpio%d/value", num);
+
+  fd = open(buf, (rw == 'w') ? O_WRONLY : O_RDONLY);
+  if (fd < 0) {
+    fprintf(stderr, "Unable to open GPIO %d: ", num);
+    perror(NULL);
+    return -1;
+  }
+
+  return fd;
+}
+
+
+char rbuf[32];
+bool
+gpioRead(int fd)
+{
+  lseek(fd, 0, SEEK_SET);
+  while (1) {
+    int n = read(fd, rbuf, sizeof(rbuf));
+    for (int i = 0; i < n; i++) {
+      if (rbuf[i] == '1') return 1;
+      if (rbuf[i] == '0') return 0;
+    }
+  }
+
+  return 0;
+}
+
+
+//
+// fd for the GPIO 'value' files
+//
+int CSn = 0;
+int CLK = 0;
+int DO  = 0;
+int DI  = 0;
+
+//
+// Initialize the MCP3202 serial interface
+//
+void
+initADC()
+{
+  write(CSn, "1", 1);
+  write(CLK, "0", 1);
+}
+
+
+//
+// Read a digital channel on a MCP3202 ADC
+//
+uint16_t readADC(int channel)
+{
+  // Prepare next conversion
+  write(CLK, "1", 1);
+  write(CLK, "0", 1);
+
+  // Start bit
+  write(CSn, "0", 1);
+  write(DI,  "1", 1);
+  write(CLK, "1", 1);
+  write(CLK, "0", 1);
+
+  // Single-Ended
+  write(CLK, "1", 1);
+  write(CLK, "0", 1);
+
+  // Channel selection
+  write(DI,  (channel) ? "1" : "0", 1);
+  write(CLK, "1", 1);
+  write(CLK, "0", 1);
+
+  // MSBF
+  write(DI,  "1", 1);
+  write(CLK, "1", 1);
+  write(CLK, "0", 1);
+
+  // Null bit
+  write(CLK, "1", 1);
+  write(CLK, "0", 1);
+
+  uint16_t dval = 0;
+  for (int i = 0; i < 12; i++) {
+    // Bn
+    write(CLK, "1", 1);
+    dval = (dval << 1) | gpioRead(DO);
+    write(CLK, "0", 1);
+  }
+
+  // End of conversion
+  write(CSn, "1", 1);
+
+  return dval;
 }
 
 
 int
 main(int argc, char* argv[])
 {
-  int TTY = open("/dev/ttyS0", O_RDWR);
-  if (TTY <= 0) {
-    fprintf(stderr, "ERROR: Cannot open /dev/ttyS0: ");
-    perror(NULL);
-    exit(1);
-  }
 
-  struct termios ttySettings;
-  if (tcgetattr(TTY, &ttySettings) != 0) {
-    fprintf(stderr, "ERROR: Cannot get TTY settings: ");
-    perror(NULL);
-    goto abort;
-  }
+  CSn = gpioOpen(132, 'w');
+  CLK = gpioOpen(134, 'w');
+  DO  = gpioOpen(136, 'r');
+  DI  = gpioOpen(138, 'w');
+  if (CSn <= 0 || CLK <= 0 || DO <= 0 || DI <= 0) return -1;
 
-  cfsetispeed(&ttySettings, (speed_t)B57600);
-  ttySettings.c_cflag &= ~PARENB;
-  ttySettings.c_cflag &= ~CSTOPB;
-  ttySettings.c_cflag &= ~CSIZE;
-  ttySettings.c_cflag |=  CS8;
+  initADC();
 
-  ttySettings.c_iflag =  IGNPAR;
-  
-  if (tcsetattr(TTY, TCSANOW, &ttySettings) != 0) {
-    fprintf(stderr, "ERROR: Cannot set TTY: ");
-    perror(NULL);
-    goto abort;
-  }
-
+  struct timeval tv;
+  uint32_t       ms;
+  uint16_t       chan0;
+  uint16_t       chan1;
   while (1) {
-    char inChar;
-    while (read(TTY, &inChar, 1) != 1);
-    analyzeChar(inChar);
+    chan0 = readADC(0);
+    chan1 = readADC(1);
+
+    gettimeofday(&tv, NULL);
+    ms = (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
+    
+    analyzeSample(chan0, chan1, ms);
   }
   
-  close(TTY);
   return 0;
-
- abort:
-  close(TTY);
-  return 1;
 }
