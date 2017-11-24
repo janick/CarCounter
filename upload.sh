@@ -1,16 +1,22 @@
 #! /bin/bash
 
+#
+# Uses https://github.com/andreafabrizi/Dropbox-Uploader
+#
+
 ROOT='/home/CarCounter'
 
+DROPBOX="$ROOT/dropbox_uploader.sh -f $ROOT/dropbox_uploader.conf"
+
 #
-# List the log files, in reverse chronological order
+# List the log files, in reverse chronological order, not including today's
 #
-files=`cd $ROOT/logs; find . -type f -printf '%Ts\t%p\n' | sort -nr | cut -f2`
+files=`cd $ROOT/logs; find . -type f -mtime +1 -printf '%Ts\t%p\n' | sort -nr | cut -f2`
 
 $toUpload=""
 for log in $files; do
     # If the log file has already been uploaded, we only need to upload the newer ones
-    $ROOT/dropbox_uploader.sh download $log /dev/null
+    $DROPBOX download $log /dev/null
     if [ $? ]; then
 	break
     fi
@@ -22,7 +28,7 @@ done
 
 # Upload the files that were not on Dropbox
 for log in $tpUpload; do
-    $ROOT/dropbox_uploader.sh up $ROOT/logs/$log $log
+    $DROPBOX upload $ROOT/logs/$log $log
 done
 
 # Erase the log files that are older than 14 days
