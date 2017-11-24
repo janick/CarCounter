@@ -333,7 +333,20 @@ uint16_t readADC(int channel)
 int
 main(int argc, char* argv[])
 {
+  //
+  // Write our process ID in a file so we can be easily killed later
+  //
+  int pid = getpid();
+  FILE *fp = fopen("CarCount.pid", "w");
+  if (fp == NULL) {
+    fprintf(stderr, "Cannot open \"CarCount.pid\" for writing: ");
+    perror(0);
+    exit(-1);
+  }
+  fprintf(fp, "%d\n", pid);
+  fclose(fp);
 
+  
   CSn = gpioOpen(132, 'w');
   CLK = gpioOpen(134, 'w');
   DO  = gpioOpen(136, 'r');
