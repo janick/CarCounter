@@ -14,10 +14,10 @@
 ##   limitations under the License.
 ##
 
-all: CarCount
+all: CarCounter
 
 %.o: %.cc
 	gcc -c $*.cc
 
-CarCount: main.o
+CarCounter: main.o
 	gcc -o $@ $^
