@@ -26,10 +26,8 @@
 #include <unistd.h>
 
 #define DEBUG
-#define DEBUGRX
+//#define DEBUGRX
 
-
-// Channel 0 is giving spurious low pressure values... odd...
 
 static struct channel_s {
   double   average;
@@ -51,23 +49,23 @@ analyzeChannel(unsigned int chan,
 	       uint32_t     stamp)
 {
   // Reject obviously bad samples
-  if (pressure < 0x0180 || 0x400 < pressure) return;
+  if (pressure < 0x0180 || 0x1000 < pressure) return;
   
-  if (pressure >= channelData[chan].average + 0x15) {
+  if (pressure >= channelData[chan].average + 0x0c0) {
     
     if (channelData[chan].isIdle
 	// Reject detections caused by bouncing in the hose
 	&& channelData[chan].idleCount > 100) {
 
 #ifdef DEBUG
-      unsigned int otherChan = (chan + 1) & 0x1;
+      unsigned int otherChan = ((chan + 1) & 0x1);
       if (channelData[otherChan].hasEvent) {
-	printf("DTCT %d %5d > %5.0fx %04x with pending event on %d %d ms ago\n",
-	       chan, pressure, channelData[chan].average, stamp,
+	printf("DTCT %d %04x > %04x at %08x with pending event on %d %d ms ago\n",
+	       chan, pressure, (unsigned int) channelData[chan].average, stamp,
 	       otherChan, stamp - channelData[otherChan].detectTime);
       } else {
-	printf("DTCT %d %5d > %5.0f %04x with no event on %d\n",
-	       chan, pressure, channelData[chan].average, stamp, otherChan);
+	printf("DTCT %d %04x > %04x at %08x with no event on %d\n",
+	       chan, pressure, (unsigned int) channelData[chan].average, stamp, otherChan);
       }
 #endif
       
@@ -78,7 +76,7 @@ analyzeChannel(unsigned int chan,
     channelData[chan].isIdle     = false;
     channelData[chan].idleCount  = 0;
 
-  } else {
+  } else if (pressure <= channelData[chan].average + 0x020) {
 #ifdef DEBUG
     if (!channelData[chan].isIdle) {
       printf("IDLE %d %04x %04x\n", chan, pressure, stamp);
@@ -86,7 +84,7 @@ analyzeChannel(unsigned int chan,
 #endif
     channelData[chan].isIdle = true;
     if (channelData[chan].idleCount < 0x10000000) channelData[chan].idleCount++;
-
+    
     // Make sure a spurious event gets cleared
     if (channelData[chan].idleCount > 100000) channelData[chan].hasEvent = false;
   }
@@ -103,8 +101,9 @@ analyzeSample(uint16_t chan0,
 	      uint32_t stamp)
 {
 #ifdef DEBUGRX
-  printf("%04x %04x %08x\n", chan0, chan1, stamp);
-  return;
+  printf("%04x %04x %08x  %04x %04x\n", chan0, chan1, stamp,
+	 (unsigned int) channelData[0].average, (unsigned int) channelData[1].average);
+
 #endif
   analyzeChannel(0, chan0, stamp);
   analyzeChannel(1, chan1, stamp);
@@ -118,20 +117,21 @@ analyzeSample(uint16_t chan0,
   // Which one occured first?
   long int ms = channelData[0].detectTime - channelData[1].detectTime;
 
-  bool isUp = false;
+  bool isUp = true;
   if (ms < 0) {
-    isUp = true;
+    isUp = false;
     ms = -ms;
   }
 
   // Reject detections that are way to slow
   if (ms > 2000) {
     // But save the latest event to recover
-    if (isUp) channelData[0].hasEvent = false;
-    else channelData[1].hasEvent = false;
+    if (isUp) channelData[1].hasEvent = false;
+    else channelData[0].hasEvent = false;
     return;
   }
 
+  // If it takes 'ms' to cover 12 inches, what is the speed?
   double mph = ((double) 681.8) / ms;
 
   // Marked these event has handled
@@ -144,7 +144,7 @@ analyzeSample(uint16_t chan0,
 	 lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday, lt->tm_hour, lt->tm_min, lt->tm_sec);
   
   // Reject if the speed is too high
-  if (mph > 60) {
+  if (0 && mph > 60) {
     printf("                     ");
   } else {
     printf("%6.1f MPH %4shill.", mph, (isUp) ? "Up" : "Down");
@@ -180,7 +180,7 @@ gpioOpen(int num, char rw)
 
   fd = open("/sys/class/gpio/unexport", O_WRONLY);
   if (fd < 0) {
-    fprintf(stderr, "Unable to unexport GPIO %d: ", num);
+    fprintf(stderr, "Unable to open GPIO unexport: ");
     perror(NULL);
     return -1;
   }
@@ -189,8 +189,7 @@ gpioOpen(int num, char rw)
   if (write(fd, buf, 3) < 3) {
     fprintf(stderr, "Unable to unexport GPIO %d: ", num);
     perror(NULL);
-    close(fd);
-    return -1;
+    // That's OK, as long as they can be exported next...
   }
   close(fd);
 
