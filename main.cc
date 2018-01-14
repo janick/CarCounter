@@ -25,14 +25,15 @@
 #include <time.h>
 #include <unistd.h>
 
-#define DEBUG
+//#define DEBUG
 //#define DEBUGRX
 
 
 static struct channel_s {
   double   average;
   bool     isIdle;
-  uint32_t idleCount;
+  bool     isChanging;
+  uint32_t changeCount;
   uint32_t detectTime;
   bool     hasEvent;
 } channelData[2] = {
@@ -50,45 +51,91 @@ analyzeChannel(unsigned int chan,
 {
   // Reject obviously bad samples
   if (pressure < 0x0180 || 0x1000 < pressure) return;
+
+  char HxL = 'x';
   
   if (pressure >= channelData[chan].average + 0x0c0) {
+
+    // High pressure detected
+    HxL = 'H';
     
-    if (channelData[chan].isIdle
-	// Reject detections caused by bouncing in the hose
-	&& channelData[chan].idleCount > 100) {
+    if (channelData[chan].isIdle) {
+      // Are we in the middle of a transition?
+      if (channelData[chan].isChanging) {
+	// Have we reached the end of the transition?
+	// Must see 20 consecutive high-pressure samples
+	if (channelData[chan].changeCount++ >= 20) {
+
+	  channelData[chan].isIdle      = false;
+	  channelData[chan].isChanging  = false;
+	  channelData[chan].changeCount = 0;
+	  channelData[chan].detectTime = stamp;
+	  channelData[chan].hasEvent    = true;
 
 #ifdef DEBUG
-      unsigned int otherChan = ((chan + 1) & 0x1);
-      if (channelData[otherChan].hasEvent) {
-	printf("DTCT %d %04x > %04x at %08x with pending event on %d %d ms ago\n",
-	       chan, pressure, (unsigned int) channelData[chan].average, stamp,
-	       otherChan, stamp - channelData[otherChan].detectTime);
-      } else {
-	printf("DTCT %d %04x > %04x at %08x with no event on %d\n",
-	       chan, pressure, (unsigned int) channelData[chan].average, stamp, otherChan);
-      }
+	  unsigned int otherChan = ((chan + 1) & 0x1);
+	  if (channelData[otherChan].hasEvent) {
+	    printf("DTCT %d %04x > %04x at %08x with pending event on %d %d ms ago\n",
+		   chan, pressure, (unsigned int) channelData[chan].average, stamp,
+		   otherChan, stamp - channelData[otherChan].detectTime);
+	  } else {
+	    printf("DTCT %d %04x > %04x at %08x with no event on %d\n",
+		   chan, pressure, (unsigned int) channelData[chan].average, stamp, otherChan);
+	  }
 #endif
-      
-      channelData[chan].detectTime = stamp;
-      channelData[chan].hasEvent   = true;
+	}
+	
+      } else {
+	// We started changing
+	channelData[chan].isChanging = true;
+	channelData[chan].changeCount = 1;
+      }
+    } else {
+      // A single high-pressure sample cancels a low-pressure transition
+      channelData[chan].isChanging  = false;
+      channelData[chan].changeCount = 0;
     }
-    
-    channelData[chan].isIdle     = false;
-    channelData[chan].idleCount  = 0;
 
   } else if (pressure <= channelData[chan].average + 0x020) {
-#ifdef DEBUG
-    if (!channelData[chan].isIdle) {
-      printf("IDLE %d %04x %04x\n", chan, pressure, stamp);
-    }
-#endif
-    channelData[chan].isIdle = true;
-    if (channelData[chan].idleCount < 0x10000000) channelData[chan].idleCount++;
-    
-    // Make sure a spurious event gets cleared
-    if (channelData[chan].idleCount > 100000) channelData[chan].hasEvent = false;
-  }
 
+    // Low ressure detected
+    HxL = 'L';
+    
+    if (not channelData[chan].isIdle) {
+      // Are we in the middle of a transition?
+      if (channelData[chan].isChanging) {
+	// Must see > 20 consecutive low-pressure samples
+	if (channelData[chan].changeCount++ >= 20) {
+
+	  channelData[chan].isIdle      = true;
+	  channelData[chan].isChanging  = false;
+	  channelData[chan].changeCount = 0;
+	  
+#ifdef DEBUG
+	  printf("IDLE %d %04x < %04x at %08x\n",
+		 chan, pressure, (unsigned int) channelData[chan].average, stamp);
+#endif
+	}
+	
+      } else {
+	// We started changing
+	channelData[chan].isChanging = true;
+	channelData[chan].changeCount = 1;
+      }
+    } else {
+      // A single low-pressure sample cancels a high-pressure transition
+      channelData[chan].isChanging  = false;
+      channelData[chan].changeCount = 0;
+    }
+  }
+  
+#ifdef DEBUGRX
+  printf("%04x %04x %c %08x %c%s%3d    ", pressure, (unsigned int) channelData[chan].average, HxL, stamp,
+	 channelData[chan].isIdle ? 'L' : 'H',
+	 channelData[chan].isChanging ? "->" : "  ",
+	 channelData[chan].changeCount);
+#endif
+  
   // Update the running average
   #define AVERAGE_WIN 250
   channelData[chan].average = ((channelData[chan].average * (double) (AVERAGE_WIN-1)) + pressure) / (double) AVERAGE_WIN;
@@ -100,13 +147,11 @@ analyzeSample(uint16_t chan0,
 	      uint16_t chan1,
 	      uint32_t stamp)
 {
-#ifdef DEBUGRX
-  printf("%04x %04x %08x  %04x %04x\n", chan0, chan1, stamp,
-	 (unsigned int) channelData[0].average, (unsigned int) channelData[1].average);
-
-#endif
   analyzeChannel(0, chan0, stamp);
   analyzeChannel(1, chan1, stamp);
+#ifdef DEBUGRX
+  printf("\n");
+#endif
 
   //  printf("%d %f\n", chan0, channelData[0].average);
   //  if (channelData[0].average < 425) exit(9);
@@ -140,7 +185,7 @@ analyzeSample(uint16_t chan0,
 
   time_t now = time(NULL);
   struct tm *lt = localtime(&now);
-  printf("%4d/%02d/%02d %02d:%02d:%02d ",
+  printf("%ld  %4d/%02d/%02d %02d:%02d:%02d ", now,
 	 lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday, lt->tm_hour, lt->tm_min, lt->tm_sec);
   
   // Reject if the speed is too high
@@ -353,6 +398,8 @@ main(int argc, char* argv[])
   if (CSn <= 0 || CLK <= 0 || DO <= 0 || DI <= 0) return -1;
 
   initADC();
+  channelData[0].average = readADC(0);
+  channelData[1].average = readADC(1);
 
   struct timeval tv;
   uint32_t       ms;
