@@ -1,13 +1,14 @@
 #! /bin/bash
 
 ROOT='/home/CarCounter'
+cd $ROOT
 
 #
 # Kill any running instance
 #
-if [ ! -f "$ROOT/CarCounter.pid" ]; then
-    kill -9 `cat $ROOT/CarCounter.pid`
-    rm $ROOT/CarCounter.pid
+if [ -f CarCount.pid ]; then
+    kill -9 `cat CarCount.pid`
+    rm -f CarCount.pid
 fi
 
 #
@@ -16,8 +17,8 @@ fi
 MONTH=`date +%Y-%m`
 DAY=`date +%Y-%m-%d`
 
-if [ ! -d "$ROOT/logs/$MONTH" ]; then
-    mkdir -p "$ROOT/logs/$MONTH"
+if [ ! -d "logs/$MONTH" ]; then
+    mkdir -p "logs/$MONTH"
 fi
 
-$ROOT/bin/CarCounter >> $ROOT/logs/$MONTH/$DAY &
+$ROOT/bin/CarCounter >> logs/$MONTH/$DAY &

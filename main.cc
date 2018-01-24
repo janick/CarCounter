@@ -25,9 +25,10 @@
 #include <time.h>
 #include <unistd.h>
 
-//#define DEBUG
-//#define DEBUGRX
 
+unsigned int gDebug = 0;
+bool         gIsRead = false;
+FILE        *gFp = NULL;
 
 static struct channel_s {
   double   average;
@@ -72,17 +73,17 @@ analyzeChannel(unsigned int chan,
 	  channelData[chan].detectTime = stamp;
 	  channelData[chan].hasEvent    = true;
 
-#ifdef DEBUG
-	  unsigned int otherChan = ((chan + 1) & 0x1);
-	  if (channelData[otherChan].hasEvent) {
-	    printf("DTCT %d %04x > %04x at %08x with pending event on %d %d ms ago\n",
-		   chan, pressure, (unsigned int) channelData[chan].average, stamp,
-		   otherChan, stamp - channelData[otherChan].detectTime);
-	  } else {
-	    printf("DTCT %d %04x > %04x at %08x with no event on %d\n",
-		   chan, pressure, (unsigned int) channelData[chan].average, stamp, otherChan);
+	  if (gDebug > 0) {
+	    unsigned int otherChan = ((chan + 1) & 0x1);
+	    if (channelData[otherChan].hasEvent) {
+	      printf("DTCT %d %04x > %04x at %08x with pending event on %d %d ms ago\n",
+		     chan, pressure, (unsigned int) channelData[chan].average, stamp,
+		     otherChan, stamp - channelData[otherChan].detectTime);
+	    } else {
+	      printf("DTCT %d %04x > %04x at %08x with no event on %d\n",
+		     chan, pressure, (unsigned int) channelData[chan].average, stamp, otherChan);
+	    }
 	  }
-#endif
 	}
 	
       } else {
@@ -111,10 +112,10 @@ analyzeChannel(unsigned int chan,
 	  channelData[chan].isChanging  = false;
 	  channelData[chan].changeCount = 0;
 	  
-#ifdef DEBUG
-	  printf("IDLE %d %04x < %04x at %08x\n",
-		 chan, pressure, (unsigned int) channelData[chan].average, stamp);
-#endif
+	  if (gDebug > 0) {
+	    printf("IDLE %d %04x < %04x at %08x\n",
+		   chan, pressure, (unsigned int) channelData[chan].average, stamp);
+	  }
 	}
 	
       } else {
@@ -129,12 +130,12 @@ analyzeChannel(unsigned int chan,
     }
   }
   
-#ifdef DEBUGRX
-  printf("%04x %04x %c %08x %c%s%3d    ", pressure, (unsigned int) channelData[chan].average, HxL, stamp,
-	 channelData[chan].isIdle ? 'L' : 'H',
-	 channelData[chan].isChanging ? "->" : "  ",
-	 channelData[chan].changeCount);
-#endif
+  if (gDebug > 1) {
+    printf("%04x %04x %c %08x %c%s%3d    ", pressure, (unsigned int) channelData[chan].average, HxL, stamp,
+	   channelData[chan].isIdle ? 'L' : 'H',
+	   channelData[chan].isChanging ? "->" : "  ",
+	   channelData[chan].changeCount);
+  }
   
   // Update the running average
   #define AVERAGE_WIN 250
@@ -147,11 +148,15 @@ analyzeSample(uint16_t chan0,
 	      uint16_t chan1,
 	      uint32_t stamp)
 {
+  if (gFp != NULL && !gIsRead) {
+    fprintf(gFp, "%04x %04x %08x\n", chan0, chan1, stamp);
+  }
+  
   analyzeChannel(0, chan0, stamp);
   analyzeChannel(1, chan1, stamp);
-#ifdef DEBUGRX
-  printf("\n");
-#endif
+  if (gDebug > 1) {
+    printf("\n");
+  }
 
   //  printf("%d %f\n", chan0, channelData[0].average);
   //  if (channelData[0].average < 425) exit(9);
@@ -377,6 +382,41 @@ uint16_t readADC(int channel)
 int
 main(int argc, char* argv[])
 {
+  const char* fname = NULL;
+
+  int optc;
+  while ((optc = getopt(argc, argv, "D:hr:w:")) != -1) {
+    switch (optc) {
+    case 'D':
+      gDebug = atoi(optarg);
+      break;
+      
+    case 'h':
+    case '?':
+      fprintf(stderr, "Usage: %s [-D n] [-r fname | -w fname]\n");
+      exit(1);
+      
+    case 'r':
+      gIsRead = true;
+      fname = optarg;
+      break;
+      
+    case 'w':
+      gIsRead = false;
+      fname = optarg;
+      break;
+    }
+  }
+
+  if (fname != NULL) {
+    gFp = fopen(fname, (gIsRead) ? "r" : "w");
+    if (gFp == NULL) {
+      fprintf(stderr, "ERROR: Cannot open \"%s\": ", fname);
+      perror(NULL);
+      return -1;
+    }
+  }
+  
   //
   // Write our process ID in a file so we can be easily killed later
   //
