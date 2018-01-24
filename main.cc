@@ -137,9 +137,12 @@ analyzeChannel(unsigned int chan,
 	   channelData[chan].changeCount);
   }
   
-  // Update the running average
-  #define AVERAGE_WIN 250
-  channelData[chan].average = ((channelData[chan].average * (double) (AVERAGE_WIN-1)) + pressure) / (double) AVERAGE_WIN;
+
+  if (channelData[chan].isIdle && !channelData[chan].isChanging) {
+    // Update the running average
+    #define AVERAGE_WIN 250
+    channelData[chan].average = ((channelData[chan].average * (double) (AVERAGE_WIN-1)) + pressure) / (double) AVERAGE_WIN;
+  }
 }
 
   
