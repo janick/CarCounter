@@ -17,7 +17,7 @@
 all: CarCounter
 
 %.o: %.cc
-	gcc -c $*.cc
+	gcc -Wall -c $*.cc
 
 CarCounter: main.o
 	gcc -o $@ $^

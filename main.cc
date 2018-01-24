@@ -35,20 +35,20 @@ static struct channel_s {
   bool     isIdle;
   bool     isChanging;
   uint32_t changeCount;
-  uint32_t detectTime;
+  uint64_t detectTime;
   bool     hasEvent;
 } channelData[2] = {
   {0x200, true, 0, 0, false},
   {0x200, true, 0, 0, false}
 };
 
-uint32_t frontWheelStamp = 0;
+uint64_t frontWheelStamp = 0;
 
 
 void
 analyzeChannel(unsigned int chan,
 	       uint16_t     pressure,
-	       uint32_t     stamp)
+	       uint64_t     stamp)
 {
   // Reject obviously bad samples
   if (pressure < 0x0180 || 0x1000 < pressure) return;
@@ -76,11 +76,11 @@ analyzeChannel(unsigned int chan,
 	  if (gDebug > 0) {
 	    unsigned int otherChan = ((chan + 1) & 0x1);
 	    if (channelData[otherChan].hasEvent) {
-	      printf("DTCT %d %04x > %04x at %08x with pending event on %d %d ms ago\n",
+	      printf("DTCT %d %04x > %04x at %08llx with pending event on %d %lld ms ago\n",
 		     chan, pressure, (unsigned int) channelData[chan].average, stamp,
 		     otherChan, stamp - channelData[otherChan].detectTime);
 	    } else {
-	      printf("DTCT %d %04x > %04x at %08x with no event on %d\n",
+	      printf("DTCT %d %04x > %04x at %08llx with no event on %d\n",
 		     chan, pressure, (unsigned int) channelData[chan].average, stamp, otherChan);
 	    }
 	  }
@@ -113,7 +113,7 @@ analyzeChannel(unsigned int chan,
 	  channelData[chan].changeCount = 0;
 	  
 	  if (gDebug > 0) {
-	    printf("IDLE %d %04x < %04x at %08x\n",
+	    printf("IDLE %d %04x < %04x at %08llx\n",
 		   chan, pressure, (unsigned int) channelData[chan].average, stamp);
 	  }
 	}
@@ -131,7 +131,7 @@ analyzeChannel(unsigned int chan,
   }
   
   if (gDebug > 1) {
-    printf("%04x %04x %c %08x %c%s%3d    ", pressure, (unsigned int) channelData[chan].average, HxL, stamp,
+    printf("%04x %04x %c %08llx %c%s%3d    ", pressure, (unsigned int) channelData[chan].average, HxL, stamp,
 	   channelData[chan].isIdle ? 'L' : 'H',
 	   channelData[chan].isChanging ? "->" : "  ",
 	   channelData[chan].changeCount);
@@ -146,10 +146,10 @@ analyzeChannel(unsigned int chan,
 void
 analyzeSample(uint16_t chan0,
 	      uint16_t chan1,
-	      uint32_t stamp)
+	      uint64_t stamp)
 {
   if (gFp != NULL && !gIsRead) {
-    fprintf(gFp, "%04x %04x %08x\n", chan0, chan1, stamp);
+    fprintf(gFp, "%04x %04x %08llx\n", chan0, chan1, stamp);
   }
   
   analyzeChannel(0, chan0, stamp);
@@ -165,7 +165,7 @@ analyzeSample(uint16_t chan0,
   if (!channelData[0].hasEvent || !channelData[1].hasEvent) return;
 
   // Which one occured first?
-  long int ms = channelData[0].detectTime - channelData[1].detectTime;
+  long long int ms = channelData[0].detectTime - channelData[1].detectTime;
 
   bool isUp = true;
   if (ms < 0) {
@@ -188,7 +188,7 @@ analyzeSample(uint16_t chan0,
   channelData[0].hasEvent = false;
   channelData[1].hasEvent = false;
 
-  time_t now = time(NULL);
+  time_t now = stamp/1000;
   struct tm *lt = localtime(&now);
   printf("%ld  %4d/%02d/%02d %02d:%02d:%02d ", now,
 	 lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday, lt->tm_hour, lt->tm_min, lt->tm_sec);
@@ -393,7 +393,7 @@ main(int argc, char* argv[])
       
     case 'h':
     case '?':
-      fprintf(stderr, "Usage: %s [-D n] [-r fname | -w fname]\n");
+      fprintf(stderr, "Usage: %s [-D n] [-r fname | -w fname]\n", argv[0]);
       exit(1);
       
     case 'r':
@@ -430,6 +430,22 @@ main(int argc, char* argv[])
   fprintf(fp, "%d\n", pid);
   fclose(fp);
 
+  uint64_t       ms;
+  uint32_t       chan0;
+  uint32_t       chan1;
+  
+  if (gFp != NULL && gIsRead) {
+    fscanf(gFp, "%x%x%llx", &chan0, &chan1, &ms);
+    channelData[0].average = chan0;
+    channelData[1].average = chan1;
+    while (fscanf(gFp, "%x%x%llx", &chan0, &chan1, &ms) == 3) {
+      if (ms < 0x10000000000) ms += 0x16100000000;
+      analyzeSample(chan0, chan1, ms);
+    }
+
+    fclose(gFp);
+    return 0;
+  }
   
   CSn = gpioOpen(132, 'w');
   CLK = gpioOpen(134, 'w');
@@ -442,15 +458,12 @@ main(int argc, char* argv[])
   channelData[1].average = readADC(1);
 
   struct timeval tv;
-  uint32_t       ms;
-  uint16_t       chan0;
-  uint16_t       chan1;
   while (1) {
     chan0 = readADC(0);
     chan1 = readADC(1);
 
     gettimeofday(&tv, NULL);
-    ms = (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
+    ms = (((uint64_t) tv.tv_sec) * 1000) + (tv.tv_usec / 1000);
     
     analyzeSample(chan0, chan1, ms);
   }
