@@ -213,7 +213,7 @@ analyzeSample(uint16_t chan0,
   frontWheelStamp = stamp;
 
   // Reject if the wheelbase is obviously too long
-  if (feet < 50) {
+  if (feet < 25) {
     printf(" Wheel base =%5.1f ft.", feet);
   }
 
