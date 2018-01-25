@@ -11,7 +11,7 @@ DROPBOX="$ROOT/dropbox_uploader.sh -f $ROOT/dropbox_uploader.conf"
 #
 # List the 7 log files, in reverse chronological order, not including today's
 #
-files=`cd $ROOT/logs; find . -type f -mtime +0 -mtime -7 -printf '%Ts\t%p\n' | sort -nr | cut -f2`
+files=`cd $ROOT/logs; find . -type f -mmin +50 -mtime -7 -printf '%Ts\t%p\n' | sort -nr | cut -f2`
 
 # Upload the files
 for log in $files; do
