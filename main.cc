@@ -106,7 +106,7 @@ analyzeChannel(unsigned int chan,
       // Are we in the middle of a transition?
       if (channelData[chan].isChanging) {
 	// Must see > 20 consecutive low-pressure samples
-	if (channelData[chan].changeCount++ >= 20) {
+	if (channelData[chan].changeCount++ >= 60) {
 
 	  channelData[chan].isIdle      = true;
 	  channelData[chan].isChanging  = false;
