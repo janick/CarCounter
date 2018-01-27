@@ -22,6 +22,8 @@
 #include <time.h>
 #include <unistd.h>
 
+const char* weekDay[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+
 
 unsigned int gDebug = 0;
 
@@ -81,28 +83,39 @@ reportDay()
   }
   total = early;
 
+  // Collapse 22:00-23:59 into a single bin
+  bins_t late;
+  for (int i = 22*4; i < 24*4; i++) {
+    late.up += dailyCount[i].up;
+    late.dn += dailyCount[i].dn;
+  }
+  total = early;
+
   printf("Up: %2d ", early.up);
-  for (int i = 6*4; i < 24*4; i++) {
+  for (int i = 6*4; i < 22*4; i++) {
+    if (i == 14*4) printf("\n       ");
     if (i > 0 && i % 4 == 0) printf("[%02d:00] ", i / 4);
     printf("%2d ", dailyCount[i].up);
     total.up += dailyCount[i].up;
   }
-  printf(": %4d\n", total.up);
+  printf("[22:00] %2d : %4d\n", late.up, total.up);
   
   printf("Dn: %2d ", early.dn);
-  for (int i = 6*4; i < 24*4; i++) {
+  for (int i = 6*4; i < 22*4; i++) {
+    if (i == 14*4) printf("\n       ");
     if (i > 0 && i % 4 == 0) printf("[%02d:00] ", i / 4);
     printf("%2d ", dailyCount[i].dn);
     total.dn += dailyCount[i].dn;
   }
-  printf(": %4d\n", total.dn);
+  printf("[22:00] %2d : %4d\n", late.dn, total.dn);
   
   printf("    %2d ", early.up + early.dn);
-  for (int i = 6*4; i < 24*4; i++) {
+  for (int i = 6*4; i < 22*4; i++) {
+    if (i == 14*4) printf("\n       ");
     if (i > 0 && i % 4 == 0) printf("[%02d:00] ", i / 4);
     printf("%2d ", dailyCount[i].up+dailyCount[i].dn);
   }
-  printf(": %4d\n", total.up + total.dn);
+  printf("[22:00] %2d : %4d\n", late.up + late.dn, total.up + total.dn);
 
   return true;
 }
@@ -117,7 +130,7 @@ analyzeFile(const char* fname)
     return false;
   }
 
-  printf("%s\n", fname);
+  bzero(dailyCount, sizeof(dailyCount));
 
   char *line = NULL;
   size_t lineLen = 0;
@@ -134,6 +147,8 @@ analyzeFile(const char* fname)
   lt->tm_min  = 0;
   lt->tm_sec  = 0;
   gStartOfDay = mktime(lt);
+
+  printf("%s %s\n", fname+13, weekDay[lt->tm_wday]);
 
   if (gDebug > 1) fputs(line, stdout);
     
