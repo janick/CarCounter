@@ -84,7 +84,7 @@ reportDay()
   printf("Up: %2d ", early.up);
   for (int i = 6*4; i < 24*4; i++) {
     if (i > 0 && i % 4 == 0) printf("[%02d:00] ", i / 4);
-    printf("%d ", dailyCount[i].up);
+    printf("%2d ", dailyCount[i].up);
     total.up += dailyCount[i].up;
   }
   printf(": %4d\n", total.up);
@@ -116,6 +116,8 @@ analyzeFile(const char* fname)
     fprintf(stderr, "ERROR: Cannot open \"%s\" for reading: %s\n", fname, strerror(errno));
     return false;
   }
+
+  printf("%s\n", fname);
 
   char *line = NULL;
   size_t lineLen = 0;
