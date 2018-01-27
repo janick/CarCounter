@@ -48,6 +48,14 @@ typedef struct bins_s {
 
 bins_t dailyCount[24 * 4];
 
+struct speedBins_s {
+  struct avg_s {
+    double sum;
+    double max;
+  } up;
+  struct avg_s dn;
+} speeds;
+  
 bool
 analyzeEvent(event_t ev)
 {
@@ -55,17 +63,27 @@ analyzeEvent(event_t ev)
   unsigned int interval = (ev.stamp - gStartOfDay) / (15 * 60);
   if (ev.isUp) {
     dailyCount[interval].up++;
+    // A speed below 5 MPH or above 30 MPH is probably bogus
+    if (5.0 < ev.speed && ev.speed < 30.0) {
+      speeds.up.sum += ev.speed;
+      if (speeds.up.max < ev.speed) speeds.up.max = ev.speed;
+    }
   } else {
     dailyCount[interval].dn++;
+    // A speed below 5 MPH or above 30 MPH is probably bogus
+    if (5.0 < ev.speed && ev.speed < 30.0) {
+      speeds.dn.sum += ev.speed;
+      if (speeds.dn.max < ev.speed) speeds.dn.max = ev.speed;
+    }
   }
 
   if (gDebug > 1) {
     struct tm *lt = localtime(&ev.stamp);
-    printf("CAR: %4d/%02d/%02d %02d:%02d:%02d +%d/-%d\n", 
+    printf("CAR: %4d/%02d/%02d %02d:%02d:%02d %.1f MPH +%d/-%d\n", 
 	   lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday, lt->tm_hour, lt->tm_min, lt->tm_sec,
-	   dailyCount[interval].up, dailyCount[interval].dn);
+	   ev.speed, dailyCount[interval].up, dailyCount[interval].dn);
   }
-  
+
   return true;
 }
 
@@ -98,7 +116,8 @@ reportDay()
     printf("%2d ", dailyCount[i].up);
     total.up += dailyCount[i].up;
   }
-  printf("[22:00] %2d : %4d\n", late.up, total.up);
+  printf("[22:00] %2d : %3d", late.up, total.up);
+  printf(" %2.0f/%2.0f MPH\n", speeds.up.sum/total.up, speeds.up.max);
   
   printf("Dn: %2d ", early.dn);
   for (int i = 6*4; i < 22*4; i++) {
@@ -107,7 +126,8 @@ reportDay()
     printf("%2d ", dailyCount[i].dn);
     total.dn += dailyCount[i].dn;
   }
-  printf("[22:00] %2d : %4d\n", late.dn, total.dn);
+  printf("[22:00] %2d : %3d", late.dn, total.dn);
+  printf(" %2.0f/%2.0f MPH\n", speeds.dn.sum/total.dn, speeds.dn.max);
   
   printf("    %2d ", early.up + early.dn);
   for (int i = 6*4; i < 22*4; i++) {
@@ -115,7 +135,9 @@ reportDay()
     if (i > 0 && i % 4 == 0) printf("[%02d:00] ", i / 4);
     printf("%2d ", dailyCount[i].up+dailyCount[i].dn);
   }
-  printf("[22:00] %2d : %4d\n", late.up + late.dn, total.up + total.dn);
+  printf("[22:00] %2d : %3d", late.up + late.dn, total.up + total.dn);
+  printf(" %2.0f/%2.0f MPH\n", (speeds.up.sum + speeds.dn.sum)/(total.up + total.dn),
+	 (speeds.up.max > speeds.dn.max) ? speeds.up.max : speeds.dn.max);
 
   return true;
 }
@@ -131,6 +153,7 @@ analyzeFile(const char* fname)
   }
 
   bzero(dailyCount, sizeof(dailyCount));
+  bzero(&speeds, sizeof(speeds));
 
   char *line = NULL;
   size_t lineLen = 0;
@@ -159,9 +182,16 @@ analyzeFile(const char* fname)
     // Two events, seperated by 3 sec or less are the same car
     if ((prevEv.stamp <= ev.stamp && ev.stamp <= prevEv.stamp+3)
 	&& prevEv.isUp == ev.isUp) {
-      // Average the speed
-      ev.speed = (ev.speed + prevEv.speed) / 2;
-      ev.stamp = prevEv.stamp;
+      // If the two speeds are too far apart, there's been a glitch
+      double diff = ev.speed - prevEv.speed;
+      if (-5.0 < diff && diff < 5.0) {
+	// Average the speed
+	ev.speed = (ev.speed + prevEv.speed) / 2;
+	ev.stamp = prevEv.stamp;
+      } else {
+	// Ignore the speed
+	ev.speed = 0.0;
+      }
 
       if (gDebug > 1) fputs(line, stdout);
 
