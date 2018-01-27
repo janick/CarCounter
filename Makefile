@@ -14,10 +14,14 @@
 ##   limitations under the License.
 ##
 
-all: CarCounter
+all: CarCounter Analyzer
 
 %.o: %.cc
-	gcc -Wall -c $*.cc
+	gcc -Wall -std=c++11 -c $*.cc
 
 CarCounter: main.o
 	gcc -o $@ $^
+
+Analyzer: analyze.o
+	gcc -o $@ $^
+
