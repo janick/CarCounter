@@ -33,20 +33,35 @@ typedef struct event_s {
 
 time_t gStartOfDay;
 
-unsigned int dailyCount[24 * 4];
+
+typedef struct bins_s {
+  unsigned int up;
+  unsigned int dn;
+
+  bins_s()
+    : up(0)
+    , dn(0)
+  {}
+} bins_t;
+
+bins_t dailyCount[24 * 4];
 
 bool
 analyzeEvent(event_t ev)
 {
   // Gather metrics in 15mins intervals
   unsigned int interval = (ev.stamp - gStartOfDay) / (15 * 60);
-  dailyCount[interval]++;
+  if (ev.isUp) {
+    dailyCount[interval].up++;
+  } else {
+    dailyCount[interval].dn++;
+  }
 
   if (gDebug > 1) {
     struct tm *lt = localtime(&ev.stamp);
-    printf("CAR: %4d/%02d/%02d %02d:%02d:%02d %d\n", 
+    printf("CAR: %4d/%02d/%02d %02d:%02d:%02d +%d/-%d\n", 
 	   lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday, lt->tm_hour, lt->tm_min, lt->tm_sec,
-	   dailyCount[interval]);
+	   dailyCount[interval].up, dailyCount[interval].dn);
   }
   
   return true;
@@ -56,17 +71,38 @@ analyzeEvent(event_t ev)
 bool
 reportDay()
 {
-  // Collapse 00:00-05:59 into a single bing
-  unsigned early = 0;
+  bins_t total;
+
+  // Collapse 00:00-05:59 into a single bin
+  bins_t early;
   for (int i = 0; i < 6*4; i++) {
-    early += dailyCount[i];
+    early.up += dailyCount[i].up;
+    early.dn += dailyCount[i].dn;
   }
-  printf("%d ", early);
+  total = early;
+
+  printf("Up: %2d ", early.up);
   for (int i = 6*4; i < 24*4; i++) {
     if (i > 0 && i % 4 == 0) printf("[%02d:00] ", i / 4);
-    printf("%d ", dailyCount[i]);
+    printf("%d ", dailyCount[i].up);
+    total.up += dailyCount[i].up;
   }
-  printf("\n");
+  printf(": %4d\n", total.up);
+  
+  printf("Dn: %2d ", early.dn);
+  for (int i = 6*4; i < 24*4; i++) {
+    if (i > 0 && i % 4 == 0) printf("[%02d:00] ", i / 4);
+    printf("%2d ", dailyCount[i].dn);
+    total.dn += dailyCount[i].dn;
+  }
+  printf(": %4d\n", total.dn);
+  
+  printf("    %2d ", early.up + early.dn);
+  for (int i = 6*4; i < 24*4; i++) {
+    if (i > 0 && i % 4 == 0) printf("[%02d:00] ", i / 4);
+    printf("%2d ", dailyCount[i].up+dailyCount[i].dn);
+  }
+  printf(": %4d\n", total.up + total.dn);
 
   return true;
 }
@@ -96,8 +132,6 @@ analyzeFile(const char* fname)
   lt->tm_min  = 0;
   lt->tm_sec  = 0;
   gStartOfDay = mktime(lt);
-
-  bzero(dailyCount, sizeof(dailyCount));
 
   if (gDebug > 1) fputs(line, stdout);
     
