@@ -25,8 +25,8 @@
 const char* weekDay[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 
 
-unsigned int gDebug = 0;
-
+unsigned int  gDebug = 0;
+FILE         *gPlot  = NULL;
 typedef struct event_s {
   time_t stamp;
   double speed;
@@ -144,6 +144,35 @@ reportDay()
 
 
 bool
+gnuplotDay(FILE *fp, const char *date, const char *wday)
+{
+  char fname[64];
+  sprintf(fname, "data.%s.dat", date);
+  FILE *data = fopen(fname, "w");
+  int j = 0;
+  for (int i = 6*4; i < 22*4; i++) {
+    fprintf(data, "%02d:%02d %d -%d", 6 + (j/4),  15 * (j % 4), dailyCount[i].up, dailyCount[i].dn);
+    if (j%4 == 0) fprintf(data, " 0");
+    fprintf(data, "\n");
+    j++;
+  }
+  fclose(data);
+
+  fprintf(fp, "set title '%s %s' offset 0,-7\n", wday, date);
+  fprintf(fp, "set style data histograms\n");
+  fprintf(fp, "set style histogram rowstacked\n");
+  fprintf(fp, "set boxwidth 1 relative\n");
+  fprintf(fp, "set style fill solid 1.0 border -1\n");
+  fprintf(fp, "set yrange [-20:80]\n");
+  fprintf(fp, "set datafile separator \" \"\n");
+  fprintf(fp, "set xtics auto\n");
+  fprintf(fp, "plot '%s' using 4:xtic(1) notitle, '' using 2 t 'Uphill', '' using 3 t 'Downhill'\n", fname);
+
+  return true;
+}
+
+
+bool
 analyzeFile(const char* fname)
 {
   FILE *fp = fopen(fname, "r");
@@ -210,6 +239,7 @@ analyzeFile(const char* fname)
   if (prevEv.stamp > 0) analyzeEvent(prevEv);
 
   reportDay();
+  if (gPlot != NULL) gnuplotDay(gPlot, fname+13, weekDay[lt->tm_wday]);
   
   fclose(fp);
 
@@ -220,7 +250,9 @@ analyzeFile(const char* fname)
 void
 usage(const char* cmd)
 {
-  fprintf(stderr, "Usage: %s [-D n] {fname}\n", cmd);
+  fprintf(stderr, "Usage: %s [-D n] [-P] {fname}\n", cmd);
+  fprintf(stderr, "\nOptions:\n");
+  fprintf(stderr, "    -P           Plot analysis\n");
   exit(-1);
 }
 
@@ -229,7 +261,7 @@ int
 main(int argc, char* argv[])
 {
   int optc;
-  while ((optc = getopt(argc, argv, "D:h")) != -1) {
+  while ((optc = getopt(argc, argv, "D:hP")) != -1) {
     switch (optc) {
     case 'D':
       gDebug = atoi(optarg);
@@ -239,13 +271,35 @@ main(int argc, char* argv[])
     case '?':
       usage(argv[0]);
 
+    case 'P':
+      gPlot = popen("gnuplot > gnuplot.jpg", "w");
+      if (gPlot == NULL) {
+	fprintf(stderr, "ERROR: Cannot open gnuplot: %s\n", strerror(errno));
+	exit(-1);
+      }
+      break;
     }
   }
 
   if (optind == argc) usage(argv[0]);
 
+  if (gPlot != NULL) {
+    unsigned int nPlots = argc - optind;
+
+    fprintf(gPlot, "set terminal jpeg small size 1000,%d\n", nPlots * 200);
+    fprintf(gPlot, "set tmargin 0\n");
+    fprintf(gPlot, "set bmargin 0\n");
+    fprintf(gPlot, "set multiplot layout %d,1\n", nPlots);
+  }
+  
   while (optind < argc) {
     if (!analyzeFile(argv[optind++])) return -1;
+  }
+
+  if (gPlot != NULL) {
+    //    fprintf(gPlot, "unset multiplot\n");
+    fprintf(gPlot, "pause mouse\n");
+    pclose(gPlot);
   }
   
   return 0;
