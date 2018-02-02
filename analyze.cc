@@ -150,15 +150,27 @@ gnuplotDay(FILE *fp, const char *date, const char *wday)
   sprintf(fname, "data.%s.dat", date);
   FILE *data = fopen(fname, "w");
   int j = 0;
-  for (int i = 6*4; i < 22*4; i++) {
-    fprintf(data, "%02d:%02d %d -%d", 6 + (j/4),  15 * (j % 4), dailyCount[i].up, dailyCount[i].dn);
-    if (j%4 == 0) fprintf(data, " 0");
-    fprintf(data, "\n");
-    j++;
+  bins_t total;
+  for (int i = 0; i < 24*4; i++) {
+    // Only plot from 6:00 to 22:00
+    if (6*4 <= i && i < 22*4) {
+      fprintf(data, "%02d:%02d %d -%d", 6 + (j/4),  15 * (j % 4), dailyCount[i].up, dailyCount[i].dn);
+      if (j%4 == 0) fprintf(data, " 0");
+      fprintf(data, "\n");
+      j++;
+    }
+
+    total.up += dailyCount[i].up;
+    total.dn += dailyCount[i].dn;
   }
+
   fclose(data);
 
+  // Skip empty files
+  if (total.up + total.dn < 20) return false;
+
   fprintf(fp, "set title '%s %s' offset 0,-7\n", wday, date);
+  fprintf(fp, "set key center right\n");
   fprintf(fp, "set style data histograms\n");
   fprintf(fp, "set style histogram rowstacked\n");
   fprintf(fp, "set boxwidth 1 relative\n");
@@ -166,7 +178,8 @@ gnuplotDay(FILE *fp, const char *date, const char *wday)
   fprintf(fp, "set yrange [-20:80]\n");
   fprintf(fp, "set datafile separator \" \"\n");
   fprintf(fp, "set xtics auto\n");
-  fprintf(fp, "plot '%s' using 4:xtic(1) notitle, '' using 2 t 'Uphill', '' using 3 t 'Downhill'\n", fname);
+  fprintf(fp, "set ytics (-20,0,20,40,60)\n");
+  fprintf(fp, "plot '%s' using 4:xtic(1) notitle, '' using 2 title '%d   Uphill', '' using 3 title '%d Downhill'\n", fname, total.up, total.dn);
 
   return true;
 }
