@@ -26,6 +26,7 @@ const char* weekDay[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"
 
 
 unsigned int  gDebug = 0;
+bool          gSpeed = false;
 FILE         *gPlot  = NULL;
 typedef struct event_s {
   time_t stamp;
@@ -50,12 +51,21 @@ bins_t dailyCount[24 * 4];
 
 struct speedBins_s {
   struct avg_s {
+    double min;
     double sum;
     double max;
   } up;
   struct avg_s dn;
-} speeds;
-  
+} speeds, speedsByInterval[24*4];
+
+void
+recordSpeed(struct speedBins_s::avg_s &bin, event_t ev)
+{  
+  bin.sum += ev.speed;
+  if (bin.min == 0 || bin.min > ev.speed) bin.min = ev.speed;
+  if (bin.max < ev.speed) bin.max = ev.speed;
+}
+
 bool
 analyzeEvent(event_t ev)
 {
@@ -65,15 +75,15 @@ analyzeEvent(event_t ev)
     dailyCount[interval].up++;
     // A speed below 5 MPH or above 30 MPH is probably bogus
     if (5.0 < ev.speed && ev.speed < 30.0) {
-      speeds.up.sum += ev.speed;
-      if (speeds.up.max < ev.speed) speeds.up.max = ev.speed;
+      recordSpeed(speeds.up, ev);
+      recordSpeed(speedsByInterval[interval].up, ev);
     }
   } else {
     dailyCount[interval].dn++;
     // A speed below 5 MPH or above 30 MPH is probably bogus
     if (5.0 < ev.speed && ev.speed < 30.0) {
-      speeds.dn.sum += ev.speed;
-      if (speeds.dn.max < ev.speed) speeds.dn.max = ev.speed;
+      recordSpeed(speeds.dn, ev);
+      recordSpeed(speedsByInterval[interval].dn, ev);
     }
   }
 
@@ -154,8 +164,25 @@ gnuplotDay(FILE *fp, const char *date, const char *wday)
   for (int i = 0; i < 24*4; i++) {
     // Only plot from 6:00 to 22:00
     if (6*4 <= i && i < 22*4) {
-      fprintf(data, "%02d:%02d %d -%d", 6 + (j/4),  15 * (j % 4), dailyCount[i].up, dailyCount[i].dn);
-      if (j%4 == 0) fprintf(data, " 0");
+      if (gSpeed) {
+	if (dailyCount[i].up > 0) {
+	  fprintf(data, "%d %02d:%02d %f %f %f", j, 6 + (j/4),  15 * (j % 4),
+		  speedsByInterval[i].up.min, speedsByInterval[i].up.sum / dailyCount[i].up, speedsByInterval[i].up.max);
+	} else {
+	  fprintf(data, "%d %02d:%02d nan nan nan", j, 6 + (j/4),  15 * (j % 4));
+	}
+	if (dailyCount[i].dn > 0) {
+	  fprintf(data, " %f %f %f",
+		  speedsByInterval[i].dn.min, speedsByInterval[i].dn.sum / dailyCount[i].dn, speedsByInterval[i].dn.max);
+	} else {
+	  fprintf(data, " nan nan nan");
+	}
+
+	if (j%4 == 0) fprintf(data, " 0");
+      } else {
+	fprintf(data, "%02d:%02d %d -%d", 6 + (j/4),  15 * (j % 4), dailyCount[i].up, dailyCount[i].dn);
+	if (j%4 == 0) fprintf(data, " 0");
+      }
       fprintf(data, "\n");
       j++;
     }
@@ -169,17 +196,28 @@ gnuplotDay(FILE *fp, const char *date, const char *wday)
   // Skip empty files
   if (total.up + total.dn < 20) return false;
 
-  fprintf(fp, "set title '%s %s' offset 0,-7\n", wday, date);
-  fprintf(fp, "set key center right\n");
-  fprintf(fp, "set style data histograms\n");
-  fprintf(fp, "set style histogram rowstacked\n");
-  fprintf(fp, "set boxwidth 1 relative\n");
-  fprintf(fp, "set style fill solid 1.0 border -1\n");
-  fprintf(fp, "set yrange [-20:80]\n");
-  fprintf(fp, "set datafile separator \" \"\n");
-  fprintf(fp, "set xtics auto\n");
-  fprintf(fp, "set ytics (-20,0,20,40,60)\n");
-  fprintf(fp, "plot '%s' using 4:xtic(1) notitle, '' using 2 title '%d   Uphill', '' using 3 title '%d Downhill'\n", fname, total.up, total.dn);
+  if (gSpeed) {
+    fprintf(fp, "set title '%s %s' offset 0,-15\n", wday, date);
+    fprintf(fp, "set key bottom right\n");
+    fprintf(fp, "set datafile separator \" \"\n");
+    fprintf(fp, "set xtics auto\n");
+    fprintf(fp, "set grid ytics\n");
+    fprintf(fp, "set yrange [0:30]\n");
+    fprintf(fp, "set ytics (0,5, 10, 15, 20, 25, 30)\n");
+    fprintf(fp, "plot '%s' using 9:xtic(2) notitle, '' using 1:4:3:5:4 title 'Up Hill' with candlesticks whiskerbars lw 3 lc 2, '' using 1:7:6:8:7 title 'Down Hill' with candlesticks whiskerbars lw 3 lc 3, '' using 1:4 title 'Average Speed' with points pointtype 5 lc 2 ps 1.8, '' using 1:7 notitle with points pointtype 5 lc 3 ps 1.8\n", fname);
+  } else {
+    fprintf(fp, "set title '%s %s' offset 0,-7\n", wday, date);
+    fprintf(fp, "set key center right\n");
+    fprintf(fp, "set style data histograms\n");
+    fprintf(fp, "set style histogram rowstacked\n");
+    fprintf(fp, "set boxwidth 1 relative\n");
+    fprintf(fp, "set style fill solid 1.0 border -1\n");
+    fprintf(fp, "set yrange [-20:80]\n");
+    fprintf(fp, "set datafile separator \" \"\n");
+    fprintf(fp, "set xtics auto\n");
+    fprintf(fp, "set ytics (-20,0,20,40,60)\n");
+    fprintf(fp, "plot '%s' using 4:xtic(1) notitle, '' using 2 title '%d   Uphill', '' using 3 title '%d Downhill'\n", fname, total.up, total.dn);
+  }
 
   return true;
 }
@@ -196,6 +234,7 @@ analyzeFile(const char* fname)
 
   bzero(dailyCount, sizeof(dailyCount));
   bzero(&speeds, sizeof(speeds));
+  bzero(&speedsByInterval, sizeof(speedsByInterval));
 
   char *line = NULL;
   size_t lineLen = 0;
@@ -263,9 +302,10 @@ analyzeFile(const char* fname)
 void
 usage(const char* cmd)
 {
-  fprintf(stderr, "Usage: %s [-D n] [-P] {fname}\n", cmd);
+  fprintf(stderr, "Usage: %s [-D n] [-PS] {fname}\n", cmd);
   fprintf(stderr, "\nOptions:\n");
   fprintf(stderr, "    -P           Plot analysis\n");
+  fprintf(stderr, "    -S           Analyze speed rather than volume\n");
   exit(-1);
 }
 
@@ -274,7 +314,7 @@ int
 main(int argc, char* argv[])
 {
   int optc;
-  while ((optc = getopt(argc, argv, "D:hP")) != -1) {
+  while ((optc = getopt(argc, argv, "D:hPS")) != -1) {
     switch (optc) {
     case 'D':
       gDebug = atoi(optarg);
@@ -290,6 +330,10 @@ main(int argc, char* argv[])
 	fprintf(stderr, "ERROR: Cannot open gnuplot: %s\n", strerror(errno));
 	exit(-1);
       }
+      break;
+
+    case 'S':
+      gSpeed = true;
       break;
     }
   }
