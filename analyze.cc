@@ -204,7 +204,7 @@ gnuplotDay(FILE *fp, const char *date, const char *wday)
     fprintf(fp, "set grid ytics\n");
     fprintf(fp, "set yrange [0:30]\n");
     fprintf(fp, "set ytics (0,5, 10, 15, 20, 25, 30)\n");
-    fprintf(fp, "plot '%s' using 9:xtic(2) notitle, '' using 1:4:3:5:4 title 'Up Hill' with candlesticks whiskerbars lw 3 lc 2, '' using 1:7:6:8:7 title 'Down Hill' with candlesticks whiskerbars lw 3 lc 3, '' using 1:4 title 'Average Speed' with points pointtype 5 lc 2 ps 1.8, '' using 1:7 notitle with points pointtype 5 lc 3 ps 1.8\n", fname);
+    fprintf(fp, "plot '%s' using 9:xtic(2) notitle, '' using 1:4:3:5:4 notitle with candlesticks whiskerbars lw 3 lc 2, '' using 1:7:6:8:7 notitle with candlesticks whiskerbars lw 3 lc 3, '' using 1:4 title 'Up Hill %.1f/%.1f MPH Ave/Max Speed' with points pointtype 5 lc 2 ps 1.8, '' using 1:7 title 'Down Hill %.1f/%.1f MPH Ave/Max Speed' with points pointtype 5 lc 3 ps 1.8\n", fname, speeds.up.sum / total.up, speeds.up.max, speeds.dn.sum / total.dn, speeds.dn.max);
   } else {
     fprintf(fp, "set title '%s %s' offset 0,-7\n", wday, date);
     fprintf(fp, "set key center right\n");
