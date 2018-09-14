@@ -27,7 +27,9 @@ const char* weekDay[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"
 
 unsigned int  gDebug = 0;
 bool          gSpeed = false;
+FILE         *gDaily = NULL;
 FILE         *gPlot  = NULL;
+unsigned int  gXCount = 0;
 typedef struct event_s {
   time_t stamp;
   double speed;
@@ -177,12 +179,12 @@ gnuplotDay(FILE *fp, const char *date, const char *wday)
 	} else {
 	  fprintf(data, " nan nan nan");
 	}
-
-	if (j%4 == 0) fprintf(data, " 0");
       } else {
 	fprintf(data, "%02d:%02d %d -%d", 6 + (j/4),  15 * (j % 4), dailyCount[i].up, dailyCount[i].dn);
-	if (j%4 == 0) fprintf(data, " 0");
       }
+
+      // To print xtick every hour
+      if (j%4 == 0) fprintf(data, " 0");
       fprintf(data, "\n");
       j++;
     }
@@ -197,27 +199,63 @@ gnuplotDay(FILE *fp, const char *date, const char *wday)
   if (total.up + total.dn < 20) return false;
 
   if (gSpeed) {
-    fprintf(fp, "set title '%s %s' offset 0,-15\n", wday, date);
-    fprintf(fp, "set key bottom right\n");
-    fprintf(fp, "set datafile separator \" \"\n");
-    fprintf(fp, "set xtics auto\n");
-    fprintf(fp, "set grid ytics\n");
-    fprintf(fp, "set yrange [0:30]\n");
-    fprintf(fp, "set ytics (0,5, 10, 15, 20, 25, 30)\n");
-    fprintf(fp, "plot '%s' using 9:xtic(2) notitle, '' using 1:4:3:5:4 notitle with candlesticks whiskerbars lw 3 lc 2, '' using 1:7:6:8:7 notitle with candlesticks whiskerbars lw 3 lc 3, '' using 1:4 title 'Up Hill %.1f/%.1f MPH Ave/Max Speed' with points pointtype 5 lc 2 ps 1.8, '' using 1:7 title 'Down Hill %.1f/%.1f MPH Ave/Max Speed' with points pointtype 5 lc 3 ps 1.8\n", fname, speeds.up.sum / total.up, speeds.up.max, speeds.dn.sum / total.dn, speeds.dn.max);
+
+    if (gDaily) {
+
+      fprintf(gDaily, "%d %s ", gXCount, date);
+      if (total.up > 0) {
+	fprintf(gDaily, "%.1f %.1f %.1f ", speeds.up.min, speeds.up.sum / total.up, speeds.up.max);
+      } else {
+	fprintf(gDaily, "nan nan nan ");
+      }
+      if (total.dn > 0) {
+	fprintf(gDaily, "%.1f %.1f %.1f ", speeds.dn.min, speeds.dn.sum / total.dn, speeds.dn.max);
+      } else {
+	fprintf(gDaily, "nan nan nan ");
+      }
+
+      // To print xtick every week
+      if (gXCount%7 == 0) fprintf(gDaily, " 0");
+      fprintf(gDaily, "\n");
+
+    } else {
+
+      fprintf(fp, "set title '%s %s' offset 0,-15\n", wday, date);
+      fprintf(fp, "set key bottom right\n");
+      fprintf(fp, "set datafile separator \" \"\n");
+      fprintf(fp, "set xtics auto\n");
+      fprintf(fp, "set grid ytics\n");
+      fprintf(fp, "set yrange [0:30]\n");
+      fprintf(fp, "set ytics (0,5, 10, 15, 20, 25, 30)\n");
+      fprintf(fp, "plot '%s' using 9:xtic(2) notitle, '' using 1:4:3:5:4 notitle with candlesticks whiskerbars lw 3 lc 2, '' using 1:7:6:8:7 notitle with candlesticks whiskerbars lw 3 lc 3, '' using 1:4 title 'Uphill %.1f/%.1f MPH Ave/Max Speed' with points pointtype 5 lc 2 ps 1.8, '' using 1:7 title 'Downhill %.1f/%.1f MPH Ave/Max Speed' with points pointtype 5 lc 3 ps 1.8\n", fname, speeds.up.sum / total.up, speeds.up.max, speeds.dn.sum / total.dn, speeds.dn.max);
+    }
+
   } else {
-    fprintf(fp, "set title '%s %s' offset 0,-7\n", wday, date);
-    fprintf(fp, "set key center right\n");
-    fprintf(fp, "set style data histograms\n");
-    fprintf(fp, "set style histogram rowstacked\n");
-    fprintf(fp, "set boxwidth 1 relative\n");
-    fprintf(fp, "set style fill solid 1.0 border -1\n");
-    fprintf(fp, "set yrange [-20:80]\n");
-    fprintf(fp, "set datafile separator \" \"\n");
-    fprintf(fp, "set xtics auto\n");
-    fprintf(fp, "set ytics (-20,0,20,40,60)\n");
-    fprintf(fp, "plot '%s' using 4:xtic(1) notitle, '' using 2 title '%d   Uphill', '' using 3 title '%d Downhill'\n", fname, total.up, total.dn);
+
+    if (gDaily) {
+
+      fprintf(gDaily, "%d %s %d -%d", gXCount, date, total.up, total.dn);
+      // To print xtick every week
+      if (gXCount%7 == 0) fprintf(gDaily, " 0");
+      fprintf(gDaily, "\n");
+
+    } else {
+
+      fprintf(fp, "set title '%s %s' offset 0,-7\n", wday, date);
+      fprintf(fp, "set key center right\n");
+      fprintf(fp, "set style data histograms\n");
+      fprintf(fp, "set style histogram rowstacked\n");
+      fprintf(fp, "set boxwidth 1 relative\n");
+      fprintf(fp, "set style fill solid 1.0 border -1\n");
+      fprintf(fp, "set yrange [-20:80]\n");
+      fprintf(fp, "set datafile separator \" \"\n");
+      fprintf(fp, "set xtics auto\n");
+      fprintf(fp, "set ytics (-20,0,20,40,60)\n");
+      fprintf(fp, "plot '%s' using 4:xtic(1) notitle, '' using 2 title '%d   Uphill', '' using 3 title '%d Downhill'\n", fname, total.up, total.dn);
+    }
+
   }
+  gXCount++;
 
   return true;
 }
@@ -306,6 +344,7 @@ usage(const char* cmd)
   fprintf(stderr, "\nOptions:\n");
   fprintf(stderr, "    -P           Plot analysis\n");
   fprintf(stderr, "    -S           Analyze speed rather than volume\n");
+  fprintf(stderr, "    -d           Analyze using daily summaries instead of 15mins intervals\n");
   exit(-1);
 }
 
@@ -314,7 +353,7 @@ int
 main(int argc, char* argv[])
 {
   int optc;
-  while ((optc = getopt(argc, argv, "D:hPS")) != -1) {
+  while ((optc = getopt(argc, argv, "dD:hPS")) != -1) {
     switch (optc) {
     case 'D':
       gDebug = atoi(optarg);
@@ -325,7 +364,7 @@ main(int argc, char* argv[])
       usage(argv[0]);
 
     case 'P':
-      gPlot = popen("gnuplot > gnuplot.jpg", "w");
+      gPlot = popen("tee gnuplot.cmd | gnuplot > gnuplot.jpg", "w");
       if (gPlot == NULL) {
 	fprintf(stderr, "ERROR: Cannot open gnuplot: %s\n", strerror(errno));
 	exit(-1);
@@ -334,6 +373,14 @@ main(int argc, char* argv[])
 
     case 'S':
       gSpeed = true;
+      break;
+
+    case 'd':
+      gDaily = fopen("daily.dat", "w");
+      if (gDaily == NULL) {
+	fprintf(stderr, "ERROR: Cannot open daily.dat for writing: %s\n", strerror(errno));
+	exit(-1);
+      }
       break;
     }
   }
@@ -346,7 +393,26 @@ main(int argc, char* argv[])
     fprintf(gPlot, "set terminal jpeg small size 1000,%d\n", nPlots * 200);
     fprintf(gPlot, "set tmargin 0\n");
     fprintf(gPlot, "set bmargin 0\n");
-    fprintf(gPlot, "set multiplot layout %d,1\n", nPlots);
+    if (!gDaily) fprintf(gPlot, "set multiplot layout %d,1\n", nPlots);
+
+    if (gDaily) {
+      if (gSpeed) {
+	fprintf(gPlot, "set key bottom right\n");
+	fprintf(gPlot, "set xtics auto\n");
+	fprintf(gPlot, "set grid ytics\n");
+	fprintf(gPlot, "set yrange [0:30]\n");
+	fprintf(gPlot, "set ytics (0,5, 10, 15, 20, 25, 30)\n");
+      } else {
+	fprintf(gPlot, "set key center right\n");
+	fprintf(gPlot, "set style data histograms\n");
+	fprintf(gPlot, "set style histogram rowstacked\n");
+	fprintf(gPlot, "set boxwidth 1 relative\n");
+	fprintf(gPlot, "set style fill solid 1.0 border -1\n");
+	fprintf(gPlot, "set yrange [-200:400]\n");
+	fprintf(gPlot, "set xtics auto\n");
+	fprintf(gPlot, "set ytics (-200,-150,-100, 050, 0, 50, 100, 150, 200, 250, 300, 350, 400)\n");
+      }
+    }
   }
   
   while (optind < argc) {
@@ -355,6 +421,14 @@ main(int argc, char* argv[])
 
   if (gPlot != NULL) {
     //    fprintf(gPlot, "unset multiplot\n");
+    if (gDaily) {
+      fclose(gDaily);
+      if (gSpeed) {
+	fprintf(gPlot, "plot 'daily.dat' using 9:xtic(2) notitle, '' using 1:4:3:5:4 notitle with candlesticks whiskerbars lw 3 lc 2, '' using 1:7:6:8:7 notitle with candlesticks whiskerbars lw 3 lc 3, '' using 1:4 title 'Uphill' with points pointtype 5 lc 2 ps 1.8, '' using 1:7 title 'Downhill' with points pointtype 5 lc 3 ps 1.8\n");
+      } else {
+	fprintf(gPlot, "plot 'daily.dat' using 5:xtic(2) notitle, '' using 3 title 'Uphill', '' using 4 title 'Downhill'\n");
+      }
+    }
     fprintf(gPlot, "pause mouse\n");
     pclose(gPlot);
   }
